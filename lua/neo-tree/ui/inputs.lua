@@ -6,6 +6,13 @@ local events = require("neo-tree.events")
 
 local M = {}
 
+local function clipboard()
+  -- 获取剪贴板内容
+  local clipboard_content = vim.fn.getreg("+")
+  -- 将剪贴板内容插入到输入框中
+  vim.api.nvim_feedkeys(clipboard_content, "i", false)
+end
+
 local should_use_popup_input = function()
   local nt = require("neo-tree")
   return utils.get_value(nt.config, "use_popups_for_input", true, false)
@@ -28,6 +35,9 @@ M.show_input = function(input, callback)
   end, { noremap = true })
 
   input:map("i", "<C-w>", "<C-S-w>", { noremap = true })
+  -- 为输入框添加自定义按键映射
+  input:map("i", "<C-v>", clipboard, { noremap = true })
+  input:map("i", "<D-v>", clipboard, { noremap = true })
 
   local event = require("nui.utils.autocmd").event
   input:on({ event.BufLeave, event.BufDelete }, function()
