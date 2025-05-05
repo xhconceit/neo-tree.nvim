@@ -1,3 +1,4 @@
+---@type neotree.Config.Base
 local config = {
   -- If a user has a sources list it will replace this one.
   -- Only sources listed here will be loaded.
@@ -28,7 +29,7 @@ local config = {
                        -- Anything before this will be used. The last items to be processed are the untracked files.
   },
   hide_root_node = false, -- Hide the root node.
-  retain_hidden_root_indent = false, -- IF the root node is hidden, keep the indentation anyhow. 
+  retain_hidden_root_indent = false, -- IF the root node is hidden, keep the indentation anyhow.
                                      -- This is needed if you use expanders because they render in the indent.
   log_level = "info", -- "trace", "debug", "info", "warn", "error", "fatal"
   log_to_file = false, -- true, false, "/path/to/file.log", use ':lua require("neo-tree").show_logs()' to show the file
@@ -38,7 +39,7 @@ local config = {
   -- popup_border_style is for input and confirmation dialogs.
   -- Configurtaion of floating window is done in the individual source sections.
   -- "NC" is a special style that works well with NormalNC set
-  popup_border_style = "NC", -- "double", "none", "rounded", "shadow", "single" or "solid"
+  popup_border_style = "NC", -- "double", "rounded", "single", "solid", (or "" to use 'winborder' on Neovim v0.11+)
   resize_timer_interval = 500, -- in ms, needed for containers to redraw right aligned and faded content
                                -- set to -1 to disable the resize timer entirely
   --                           -- NOTE: this will speed up to 50 ms for 1 second following a resize
@@ -412,8 +413,10 @@ local config = {
       -- ["t"] = "open_tab_drop",
       ["w"] = "open_with_window_picker",
       ["C"] = "close_node",
+      --["C"] = "close_all_subnodes",
       ["z"] = "close_all_nodes",
       --["Z"] = "expand_all_nodes",
+      --["Z"] = "expand_all_subnodes",
       ["R"] = "refresh",
       ["a"] = {
         "add",
@@ -425,7 +428,6 @@ local config = {
       ["A"] = "add_directory", -- also accepts the config.show_path and config.insert_as options.
       ["d"] = "delete",
       ["r"] = "rename",
-      ["b"] = "rename_basename",
       ["y"] = "copy_to_clipboard",
       ["x"] = "cut_to_clipboard",
       ["p"] = "paste_from_clipboard",
@@ -454,6 +456,7 @@ local config = {
         ["[g"] = "prev_git_modified",
         ["]g"] = "next_git_modified",
         ["i"] = "show_file_details", -- see `:h neo-tree-file-actions` for options to customize the window.
+        ["b"] = "rename_basename",
         ["o"] = { "show_help", nowait=false, config = { title = "Order by", prefix_key = "o" }},
         ["oc"] = { "order_by_created", nowait = false },
         ["od"] = { "order_by_diagnostics", nowait = false },
@@ -586,6 +589,7 @@ local config = {
         ["d"] = "buffer_delete",
         ["bd"] = "buffer_delete",
         ["i"] = "show_file_details", -- see `:h neo-tree-file-actions` for options to customize the window.
+        ["b"] = "rename_basename",
         ["o"] = { "show_help", nowait=false, config = { title = "Order by", prefix_key = "o" }},
         ["oc"] = { "order_by_created", nowait = false },
         ["od"] = { "order_by_diagnostics", nowait = false },
@@ -607,6 +611,7 @@ local config = {
         ["gp"] = "git_push",
         ["gg"] = "git_commit_and_push",
         ["i"] = "show_file_details", -- see `:h neo-tree-file-actions` for options to customize the window.
+        ["b"] = "rename_basename",
         ["o"] = { "show_help", nowait=false, config = { title = "Order by", prefix_key = "o" }},
         ["oc"] = { "order_by_created", nowait = false },
         ["od"] = { "order_by_diagnostics", nowait = false },

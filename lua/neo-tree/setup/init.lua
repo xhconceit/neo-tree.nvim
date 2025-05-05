@@ -195,22 +195,22 @@ M.buffer_enter_event = function()
   end
   last_buffer_enter_filetype = vim.bo.filetype
 
+  -- if vim is trying to open a dir, then we hijack it
+  if netrw.hijack() then
+    return
+  end
+
   -- For all others, make sure another buffer is not hijacking our window
   -- ..but not if the position is "current"
   local prior_buf = vim.fn.bufnr("#")
   if prior_buf < 1 then
     return
   end
-  local prior_type = vim.api.nvim_buf_get_option(prior_buf, "filetype")
+  local prior_type = vim.bo[prior_buf].filetype
 
   -- there is nothing more we want to do with floating windows
   -- but when prior_type is neo-tree we might need to redirect buffer somewhere else.
   if utils.is_floating() and prior_type ~= "neo-tree" then
-    return
-  end
-
-  -- if vim is trying to open a dir, then we hijack it
-  if netrw.hijack() then
     return
   end
 
@@ -242,16 +242,19 @@ M.buffer_enter_event = function()
     local bufname = vim.api.nvim_buf_get_name(0)
     log.debug("redirecting buffer " .. bufname .. " to new split")
     vim.cmd("b#")
+    local win_width = vim.api.nvim_win_get_width(current_winid)
     -- Using schedule at this point  fixes problem with syntax
     -- highlighting in the buffer. I also prevents errors with diagnostics
     -- trying to work with the buffer as it's being closed.
     vim.schedule(function()
       -- try to delete the buffer, only because if it was new it would take
       -- on options from the neo-tree window that are undesirable.
+      ---@diagnostic disable-next-line: param-type-mismatch
       pcall(vim.cmd, "bdelete " .. bufname)
       local fake_state = {
         window = {
           position = position,
+          width = win_width or M.config.window.width,
         },
       }
       utils.open_file(fake_state, bufname)
@@ -270,7 +273,7 @@ M.win_enter_event = function()
 
   if M.config.close_if_last_window then
     local tabid = vim.api.nvim_get_current_tabpage()
-    local wins = utils.get_value(M, "config.prior_windows", {})[tabid]
+    local wins = utils.prior_windows[tabid]
     local prior_exists = utils.truthy(wins)
     local non_floating_wins = vim.tbl_filter(function(win)
       return not utils.is_floating(win)
@@ -353,26 +356,6 @@ M.win_enter_event = function()
     end
     -- it's a neo-tree window, ignore
     return
-  end
-
-  M.config.prior_windows = M.config.prior_windows or {}
-
-  local tabid = vim.api.nvim_get_current_tabpage()
-  local tab_windows = M.config.prior_windows[tabid]
-  if tab_windows == nil then
-    tab_windows = {}
-    M.config.prior_windows[tabid] = tab_windows
-  end
-  table.insert(tab_windows, win_id)
-
-  -- prune the history when it gets too big
-  if #tab_windows > 100 then
-    local new_array = {}
-    local win_count = #tab_windows
-    for i = 80, win_count do
-      table.insert(new_array, tab_windows[i])
-    end
-    M.config.prior_windows[tabid] = new_array
   end
 end
 
@@ -470,6 +453,8 @@ local merge_renderers = function(default_config, source_default_config, user_con
   end
 end
 
+---@param user_config neotree.Config?
+---@return neotree.Config.Base full_config
 M.merge_config = function(user_config)
   local default_config = vim.deepcopy(defaults)
   user_config = vim.deepcopy(user_config or {})
@@ -492,6 +477,9 @@ M.merge_config = function(user_config)
 
   events.clear_all_events()
   define_events()
+
+  -- Prevent netrw hijacking lazy-loading from conflicting with normal hijacking.
+  vim.g.neotree_watching_bufenter = 1
 
   -- Prevent accidentally opening another file in the neo-tree window.
   events.subscribe({
@@ -538,7 +526,7 @@ M.merge_config = function(user_config)
   -- used to either limit the sources that or loaded, or add extra external sources
   local all_sources = {}
   local all_source_names = {}
-  for _, source in ipairs(user_config.sources or default_config.sources) do
+  for _, source in ipairs(user_config.sources or default_config.sources or {}) do
     local parts = utils.split(source, ".")
     local name = parts[#parts]
     local is_internal_ns, is_external_ns = false, false
@@ -624,8 +612,7 @@ M.merge_config = function(user_config)
   end
   --print(vim.inspect(default_config.filesystem))
 
-  -- Moving user_config.sources to user_config.orig_sources
-  user_config.orig_sources = user_config.sources and user_config.sources or {}
+  -- local orig_sources = user_config.sources and user_config.sources or {}
 
   -- apply the users config
   M.config = vim.tbl_deep_extend("force", default_config, user_config)
@@ -667,6 +654,21 @@ M.merge_config = function(user_config)
     )
   end
 
+  ---@type neotree.Config.HijackNetrwBehavior[]
+  local disable_netrw_values = { "open_default", "open_current" }
+  local hijack_behavior = M.config.filesystem.hijack_netrw_behavior
+  if vim.tbl_contains(disable_netrw_values, hijack_behavior) then
+    -- Disable netrw autocmds
+    vim.cmd("silent! autocmd! FileExplorer *")
+  elseif hijack_behavior ~= "disabled" then
+    require("neo-tree.log").error(
+      "Invalid value for filesystem.hijack_netrw_behavior: '"
+        .. hijack_behavior
+        .. "', will default to 'disabled'"
+    )
+    M.config.filesystem.hijack_netrw_behavior = "disabled"
+  end
+
   if not M.config.enable_git_status then
     M.config.git_status_async = false
   end
@@ -675,14 +677,7 @@ M.merge_config = function(user_config)
   -- aren't, remove them
   local source_selector_sources = {}
   for _, ss_source in ipairs(M.config.source_selector.sources or {}) do
-    local source_match = false
-    for _, source in ipairs(M.config.sources) do
-      if ss_source.source == source then
-        source_match = true
-        break
-      end
-    end
-    if source_match then
+    if vim.tbl_contains(M.config.sources, ss_source.source) then
       table.insert(source_selector_sources, ss_source)
     else
       log.debug(string.format("Unable to locate Neo-tree extension %s", ss_source.source))
@@ -701,7 +696,7 @@ M.merge_config = function(user_config)
       M.config[source_name].commands =
         vim.tbl_extend("keep", M.config[source_name].commands or {}, M.config.commands)
     end
-    manager.setup(source_name, M.config[source_name], M.config, module)
+    manager.setup(source_name, M.config[source_name] --[[@as table]], M.config, module)
     manager.redraw(source_name)
   end
 

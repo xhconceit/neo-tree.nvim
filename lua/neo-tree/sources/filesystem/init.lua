@@ -1,8 +1,8 @@
 --This file should have all functions that are in the public api and either set
 --or read the state of this source.
 
-local vim = vim
 local utils = require("neo-tree.utils")
+local _compat = require("neo-tree.utils._compat")
 local fs_scan = require("neo-tree.sources.filesystem.lib.fs_scan")
 local renderer = require("neo-tree.ui.renderer")
 local events = require("neo-tree.events")
@@ -107,6 +107,10 @@ M.follow = function(callback, force_show)
   end, 100, utils.debounce_strategy.CALL_LAST_ONLY)
 end
 
+local fs_stat = (vim.uv or vim.loop).fs_stat
+---@param path string?
+---@param path_to_reveal string?
+---@param callback function?
 M._navigate_internal = function(state, path, path_to_reveal, callback, async)
   log.trace("navigate_internal", state.current_position, path, path_to_reveal)
   state.dirty = false
@@ -120,6 +124,24 @@ M._navigate_internal = function(state, path, path_to_reveal, callback, async)
     path = manager.get_cwd(state)
   end
   path = utils.normalize_path(path)
+
+  -- if path doesn't exist, navigate upwards until it does
+  local orig_path = path
+  local backed_out = false
+  while not fs_stat(path) do
+    log.debug(("navigate_internal: path %s didn't exist, going up a directory"):format(path))
+    backed_out = true
+    local parent, _ = utils.split_path(path)
+    if not parent then
+      break
+    end
+    path = parent
+  end
+
+  if backed_out then
+    log.warn(("Root path %s doesn't exist, backing out to %s"):format(orig_path, path))
+  end
+
   if path ~= state.path then
     log.debug("navigate_internal: path changed from ", state.path, " to ", path)
     state.path = path
@@ -161,9 +183,9 @@ M._navigate_internal = function(state, path, path_to_reveal, callback, async)
 end
 
 ---Navigate to the given path.
----@param path string Path to navigate to. If empty, will navigate to the cwd.
----@param path_to_reveal string Node to focus after the items are loaded.
----@param callback function Callback to call after the items are loaded.
+---@param path string? Path to navigate to. If empty, will navigate to the cwd.
+---@param path_to_reveal string? Node to focus after the items are loaded.
+---@param callback function? Callback to call after the items are loaded.
 M.navigate = function(state, path, path_to_reveal, callback, async)
   state._ready = false
   log.trace("navigate", path, path_to_reveal, async)
@@ -187,7 +209,7 @@ M.reset_search = function(state, refresh, open_current_node)
     refresh = true
   end
   if state.open_folders_before_search then
-    state.force_open_folders = vim.deepcopy(state.open_folders_before_search, { noref = 1 })
+    state.force_open_folders = vim.deepcopy(state.open_folders_before_search, _compat.noref())
   else
     state.force_open_folders = nil
   end
@@ -423,6 +445,9 @@ end
 
 M.prefetcher = {
   prefetch = function(state, node)
+    if node.type ~= "directory" then
+      return
+    end
     log.debug("Running fs prefetch for: " .. node:get_id())
     fs_scan.get_dir_items_async(state, node:get_id(), true)
   end,
